@@ -1,10 +1,11 @@
 const { NodeSDK } = require('@opentelemetry/sdk-node');
 const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
+const { WinstonInstrumentation } = require('@opentelemetry/instrumentation-winston');
 const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-http');
 const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
 const { OTLPLogExporter } = require('@opentelemetry/exporter-logs-otlp-http');
 const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
-const { BatchLogRecordProcessor, LoggerProvider } = require('@opentelemetry/sdk-logs');
+const { SimpleLogRecordProcessor, LoggerProvider } = require('@opentelemetry/sdk-logs');
 const { logs } = require('@opentelemetry/api-logs');
 const { Resource } = require('@opentelemetry/resources');
 const { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } = require('@opentelemetry/semantic-conventions');
@@ -14,7 +15,7 @@ const traceUrl = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || `http://${col
 const metricUrl = process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT || `http://${collectorHost}:4318/v1/metrics`;
 const logUrl = process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT || `http://${collectorHost}:4318/v1/logs`;
 
-console.log(`[OpenTelemetry] Initializing OTel SDK (Traces, Metrics, Logs):`);
+console.log(`[OpenTelemetry] Initializing OTel SDK (Traces, Metrics, Winston Logs):`);
 console.log(`  -> Traces Target:  ${traceUrl}`);
 console.log(`  -> Metrics Target: ${metricUrl}`);
 console.log(`  -> Logs Target:    ${logUrl}`);
@@ -32,23 +33,29 @@ const traceExporter = new OTLPTraceExporter({ url: traceUrl });
 const metricExporter = new OTLPMetricExporter({ url: metricUrl });
 const metricReader = new PeriodicExportingMetricReader({
   exporter: metricExporter,
-  exportIntervalMillis: 5000, // Export metrics every 5s
+  exportIntervalMillis: 5000,
 });
 
-// 3. Log Exporter & Provider
+// 3. Log Exporter & Processor
 const logExporter = new OTLPLogExporter({ url: logUrl });
+const logRecordProcessor = new SimpleLogRecordProcessor(logExporter);
+
 const loggerProvider = new LoggerProvider({ resource });
-loggerProvider.addLogRecordProcessor(new BatchLogRecordProcessor(logExporter));
+loggerProvider.addLogRecordProcessor(logRecordProcessor);
 logs.setGlobalLoggerProvider(loggerProvider);
 
-// Node SDK Initialization
+// Node SDK Initialization with WinstonInstrumentation
 const sdk = new NodeSDK({
   resource,
   traceExporter,
   metricReader,
+  logRecordProcessors: [logRecordProcessor],
   instrumentations: [
     getNodeAutoInstrumentations({
       '@opentelemetry/instrumentation-fs': { enabled: false },
+    }),
+    new WinstonInstrumentation({
+      disableLogSending: false, // Automatically forwards Winston logs to OTel LogRecordProcessor
     }),
   ],
 });

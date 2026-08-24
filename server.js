@@ -4,12 +4,24 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const winston = require('winston');
 const { trace, metrics, SpanStatusCode } = require('@opentelemetry/api');
-const { logs, SeverityNumber } = require('@opentelemetry/api-logs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'otel-secret-key-super-secure';
+
+// Initialize Winston Logger (Automatically instrumented by @opentelemetry/instrumentation-winston)
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console()
+  ]
+});
 
 // Enable CORS and JSON parsing
 app.use(cors());
@@ -21,7 +33,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 // OpenTelemetry Instrumentation Handles
 const tracer = trace.getTracer('todo-crud-tracer', '1.0.0');
 const meter = metrics.getMeter('todo-metrics-meter', '1.0.0');
-const logger = logs.getLogger('todo-logger', '1.0.0');
 
 // Metrics Instruments
 const todoCreatedCounter = meter.createCounter('todo.created.count', {
@@ -33,22 +44,6 @@ const todoDeletedCounter = meter.createCounter('todo.deleted.count', {
 const userRegisteredCounter = meter.createCounter('user.registered.count', {
   description: 'Total number of registered users',
 });
-
-// Helper for structured OTel Logging
-function emitOtelLog(severityText, severityNumber, message, attributes = {}) {
-  const activeSpan = trace.getActiveSpan();
-  const spanContext = activeSpan ? activeSpan.spanContext() : null;
-
-  logger.emit({
-    severityText,
-    severityNumber,
-    body: message,
-    attributes: {
-      ...attributes,
-      ...(spanContext ? { trace_id: spanContext.traceId, span_id: spanContext.spanId } : {})
-    }
-  });
-}
 
 // In-memory Database of Users & Todos
 const users = [];
@@ -82,13 +77,13 @@ function authenticateToken(req, res, next) {
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    emitOtelLog('WARN', SeverityNumber.WARN, 'Unauthorized request missing Bearer token', { http_target: req.originalUrl });
+    logger.warn('Unauthorized request missing Bearer token', { httpTarget: req.originalUrl });
     return res.status(401).json({ success: false, error: 'Access token required. Please log in.' });
   }
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      emitOtelLog('WARN', SeverityNumber.WARN, 'Invalid or expired session token', { http_target: req.originalUrl });
+      logger.warn('Invalid or expired session token', { httpTarget: req.originalUrl });
       return res.status(403).json({ success: false, error: 'Invalid or expired session token.' });
     }
 
@@ -116,7 +111,7 @@ app.post('/api/auth/register', async (req, res) => {
 
   try {
     if (!name || !email || !password) {
-      emitOtelLog('WARN', SeverityNumber.WARN, 'Registration failed: missing required fields');
+      logger.warn('Registration failed: missing required fields');
       span.setStatus({ code: SpanStatusCode.ERROR, message: 'Missing required fields' });
       span.end();
       return res.status(400).json({ success: false, error: 'Name, email, and password are required.' });
@@ -124,7 +119,7 @@ app.post('/api/auth/register', async (req, res) => {
 
     const existingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
     if (existingUser) {
-      emitOtelLog('WARN', SeverityNumber.WARN, 'Registration failed: email already registered', { user_email: email });
+      logger.warn('Registration failed: email already registered', { userEmail: email });
       span.setStatus({ code: SpanStatusCode.ERROR, message: 'Email already registered' });
       span.end();
       return res.status(400).json({ success: false, error: 'An account with this email already exists.' });
@@ -145,7 +140,7 @@ app.post('/api/auth/register', async (req, res) => {
     span.setAttribute('user.id', newUser.id);
     span.setAttribute('user.email', newUser.email);
 
-    emitOtelLog('INFO', SeverityNumber.INFO, `New user registered: ${newUser.email}`, { user_id: newUser.id, user_email: newUser.email });
+    logger.info(`New user registered: ${newUser.email}`, { userId: newUser.id, userEmail: newUser.email });
 
     const token = jwt.sign(
       { id: newUser.id, name: newUser.name, email: newUser.email },
@@ -160,7 +155,7 @@ app.post('/api/auth/register', async (req, res) => {
     });
     span.setStatus({ code: SpanStatusCode.OK });
   } catch (err) {
-    emitOtelLog('ERROR', SeverityNumber.ERROR, `Registration error: ${err.message}`);
+    logger.error(`Registration error: ${err.message}`, { error: err.stack });
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
     res.status(500).json({ success: false, error: err.message });
   } finally {
@@ -174,7 +169,7 @@ app.post('/api/auth/login', async (req, res) => {
 
   try {
     if (!email || !password) {
-      emitOtelLog('WARN', SeverityNumber.WARN, 'Login failed: missing credentials');
+      logger.warn('Login failed: missing credentials');
       span.setStatus({ code: SpanStatusCode.ERROR, message: 'Missing credentials' });
       span.end();
       return res.status(400).json({ success: false, error: 'Email and password are required.' });
@@ -182,7 +177,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
     if (!user) {
-      emitOtelLog('WARN', SeverityNumber.WARN, 'Login failed: user not found', { user_email: email });
+      logger.warn('Login failed: user not found', { userEmail: email });
       span.setStatus({ code: SpanStatusCode.ERROR, message: 'User not found' });
       span.end();
       return res.status(401).json({ success: false, error: 'Invalid email or password.' });
@@ -190,7 +185,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
-      emitOtelLog('WARN', SeverityNumber.WARN, 'Login failed: invalid password', { user_email: email });
+      logger.warn('Login failed: invalid password', { userEmail: email });
       span.setStatus({ code: SpanStatusCode.ERROR, message: 'Invalid password' });
       span.end();
       return res.status(401).json({ success: false, error: 'Invalid email or password.' });
@@ -199,7 +194,7 @@ app.post('/api/auth/login', async (req, res) => {
     span.setAttribute('user.id', user.id);
     span.setAttribute('user.email', user.email);
 
-    emitOtelLog('INFO', SeverityNumber.INFO, `User logged in successfully: ${user.email}`, { user_id: user.id, user_email: user.email });
+    logger.info(`User logged in successfully: ${user.email}`, { userId: user.id, userEmail: user.email });
 
     const token = jwt.sign(
       { id: user.id, name: user.name, email: user.email },
@@ -214,7 +209,7 @@ app.post('/api/auth/login', async (req, res) => {
     });
     span.setStatus({ code: SpanStatusCode.OK });
   } catch (err) {
-    emitOtelLog('ERROR', SeverityNumber.ERROR, `Login error: ${err.message}`);
+    logger.error(`Login error: ${err.message}`, { error: err.stack });
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
     res.status(500).json({ success: false, error: err.message });
   } finally {
@@ -227,7 +222,7 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 });
 
 // =========================================================
-// TODO CRUD ENDPOINTS (With Metrics & Correlated OTel Logs)
+// TODO CRUD ENDPOINTS (Winston Logging + Correlated Spans)
 // =========================================================
 
 app.get('/api/todos', authenticateToken, async (req, res) => {
@@ -236,13 +231,13 @@ app.get('/api/todos', authenticateToken, async (req, res) => {
     const userTodos = todos.filter(t => t.userId === req.user.id);
     span.setAttribute('todo.count', userTodos.length);
 
-    emitOtelLog('INFO', SeverityNumber.INFO, `Fetched ${userTodos.length} todos for user ${req.user.email}`, { user_id: req.user.id, todo_count: userTodos.length });
+    logger.info(`Fetched ${userTodos.length} todos for user ${req.user.email}`, { userId: req.user.id, todoCount: userTodos.length });
 
     await delay(25);
     res.json({ success: true, count: userTodos.length, data: userTodos });
     span.setStatus({ code: SpanStatusCode.OK });
   } catch (err) {
-    emitOtelLog('ERROR', SeverityNumber.ERROR, `Fetch todos error: ${err.message}`);
+    logger.error(`Fetch todos error: ${err.message}`, { error: err.stack });
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
     res.status(500).json({ success: false, error: err.message });
   } finally {
@@ -284,20 +279,20 @@ app.post('/api/todos', authenticateToken, async (req, res) => {
       category: newTodo.category
     });
 
-    // Emit Correlated OTel Log
-    emitOtelLog('INFO', SeverityNumber.INFO, `Todo created: "${newTodo.title}"`, {
-      todo_id: newTodo.id,
-      todo_priority: newTodo.priority,
-      todo_category: newTodo.category,
-      user_id: req.user.id,
-      user_email: req.user.email
+    // Winston Log (Automatically intercepted & correlated by @opentelemetry/instrumentation-winston)
+    logger.info(`Todo created: "${newTodo.title}"`, {
+      todoId: newTodo.id,
+      todoPriority: newTodo.priority,
+      todoCategory: newTodo.category,
+      userId: req.user.id,
+      userEmail: req.user.email
     });
 
     await delay(35);
     res.status(201).json({ success: true, data: newTodo });
     span.setStatus({ code: SpanStatusCode.OK });
   } catch (err) {
-    emitOtelLog('ERROR', SeverityNumber.ERROR, `Create todo error: ${err.message}`);
+    logger.error(`Create todo error: ${err.message}`, { error: err.stack });
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
     res.status(500).json({ success: false, error: err.message });
   } finally {
@@ -326,17 +321,17 @@ app.put('/api/todos/:id', authenticateToken, async (req, res) => {
 
     span.setAttribute('todo.completed', todo.completed);
 
-    emitOtelLog('INFO', SeverityNumber.INFO, `Todo updated: ID ${id} (completed: ${todo.completed})`, {
-      todo_id: id,
+    logger.info(`Todo updated: ID ${id} (completed: ${todo.completed})`, {
+      todoId: id,
       completed: todo.completed,
-      user_id: req.user.id
+      userId: req.user.id
     });
 
     await delay(25);
     res.json({ success: true, data: todo });
     span.setStatus({ code: SpanStatusCode.OK });
   } catch (err) {
-    emitOtelLog('ERROR', SeverityNumber.ERROR, `Update todo error: ${err.message}`);
+    logger.error(`Update todo error: ${err.message}`, { error: err.stack });
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
     res.status(500).json({ success: false, error: err.message });
   } finally {
@@ -363,17 +358,16 @@ app.delete('/api/todos/:id', authenticateToken, async (req, res) => {
     // Record Custom OTel Metric
     todoDeletedCounter.add(1, { category: deletedItem.category });
 
-    // Emit Correlated OTel Log
-    emitOtelLog('INFO', SeverityNumber.INFO, `Todo deleted: "${deletedItem.title}"`, {
-      todo_id: id,
-      user_id: req.user.id
+    logger.info(`Todo deleted: "${deletedItem.title}"`, {
+      todoId: id,
+      userId: req.user.id
     });
 
     await delay(25);
     res.json({ success: true, data: deletedItem });
     span.setStatus({ code: SpanStatusCode.OK });
   } catch (err) {
-    emitOtelLog('ERROR', SeverityNumber.ERROR, `Delete todo error: ${err.message}`);
+    logger.error(`Delete todo error: ${err.message}`, { error: err.stack });
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
     res.status(500).json({ success: false, error: err.message });
   } finally {
@@ -385,7 +379,7 @@ app.get('/api/telemetry-status', (req, res) => {
   res.json({
     service: process.env.OTEL_SERVICE_NAME || 'todo-backend-service',
     collectorEndpoint: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://otel-collector:4318/v1/traces',
-    signals: ['Traces', 'Metrics', 'Logs'],
+    signals: ['Traces', 'Metrics', 'Winston Logs'],
     destinations: {
       honeycomb: process.env.HONEYCOMB_API_KEY ? 'Configured' : 'Missing API Key (Check .env)',
       newrelic: process.env.NEW_RELIC_LICENSE_KEY ? 'Configured' : 'Missing License Key (Check .env)',
@@ -395,6 +389,6 @@ app.get('/api/telemetry-status', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Todo Service with OTel Traces, Metrics & Logs listening on port ${PORT}`);
+  logger.info(`🚀 Todo Service with OTel Winston Logging listening on port ${PORT}`);
   console.log(`🔑 Demo User Credentials: demo@example.com / password123`);
 });
