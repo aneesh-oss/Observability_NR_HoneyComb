@@ -1,0 +1,28 @@
+{
+  "name": "todo-otel-crud-service",
+  "version": "1.0.0",
+  "description": "Todo CRUD service with OpenTelemetry export to Honeycomb and New Relic via OTel Collector",
+  "main": "server.js",
+  "scripts": {
+    "start": "node -r ./tracing.js server.js",
+    "dev": "node -r ./tracing.js server.js"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/api-logs": "^0.52.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.49.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.52.1",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.52.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.52.1",
+    "@opentelemetry/resources": "^1.25.1",
+    "@opentelemetry/sdk-logs": "^0.52.1",
+    "@opentelemetry/sdk-metrics": "^1.25.1",
+    "@opentelemetry/sdk-node": "^0.52.1",
+    "@opentelemetry/semantic-conventions": "^1.25.1",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

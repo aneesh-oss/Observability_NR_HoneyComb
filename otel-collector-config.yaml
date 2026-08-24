@@ -1,0 +1,45 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  # 1. Honeycomb Exporter (OTLP HTTP for Traces, Metrics & Logs)
+  otlp_http/honeycomb:
+    endpoint: "https://api.honeycomb.io"
+    headers:
+      "x-honeycomb-team": "${HONEYCOMB_API_KEY}"
+      "x-honeycomb-dataset": "${HONEYCOMB_DATASET}"
+
+  # 2. New Relic Exporter (OTLP HTTP for Traces, Metrics & Logs)
+  otlp_http/newrelic:
+    endpoint: "https://otlp.nr-data.net"
+    headers:
+      "api-key": "${NEW_RELIC_LICENSE_KEY}"
+
+  # 3. Local Debug Exporter (Console logging for verification)
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, otlp_http/honeycomb, otlp_http/newrelic]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, otlp_http/honeycomb, otlp_http/newrelic]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, otlp_http/honeycomb, otlp_http/newrelic]
