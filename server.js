@@ -5,13 +5,14 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const winston = require('winston');
+const { OpenTelemetryTransportV3 } = require('@opentelemetry/winston-transport');
 const { trace, metrics, SpanStatusCode } = require('@opentelemetry/api');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'otel-secret-key-super-secure';
 
-// Initialize Winston Logger (Automatically instrumented by @opentelemetry/instrumentation-winston)
+// Initialize Winston Logger with OpenTelemetryTransportV3
 const logger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(
@@ -19,7 +20,8 @@ const logger = winston.createLogger({
     winston.format.json()
   ),
   transports: [
-    new winston.transports.Console()
+    new winston.transports.Console(),
+    new OpenTelemetryTransportV3() // Explicit OTel transport guaranteeing log record emission
   ]
 });
 
@@ -279,7 +281,7 @@ app.post('/api/todos', authenticateToken, async (req, res) => {
       category: newTodo.category
     });
 
-    // Winston Log (Automatically intercepted & correlated by @opentelemetry/instrumentation-winston)
+    // Winston Log (Sent via OpenTelemetryTransportV3 directly to OTel Collector)
     logger.info(`Todo created: "${newTodo.title}"`, {
       todoId: newTodo.id,
       todoPriority: newTodo.priority,
@@ -379,7 +381,7 @@ app.get('/api/telemetry-status', (req, res) => {
   res.json({
     service: process.env.OTEL_SERVICE_NAME || 'todo-backend-service',
     collectorEndpoint: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://otel-collector:4318/v1/traces',
-    signals: ['Traces', 'Metrics', 'Winston Logs'],
+    signals: ['Traces', 'Metrics', 'Winston OTel Transport Logs'],
     destinations: {
       honeycomb: process.env.HONEYCOMB_API_KEY ? 'Configured' : 'Missing API Key (Check .env)',
       newrelic: process.env.NEW_RELIC_LICENSE_KEY ? 'Configured' : 'Missing License Key (Check .env)',
@@ -389,6 +391,6 @@ app.get('/api/telemetry-status', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  logger.info(`🚀 Todo Service with OTel Winston Logging listening on port ${PORT}`);
+  logger.info(`🚀 Todo Service with OpenTelemetryTransportV3 listening on port ${PORT}`);
   console.log(`🔑 Demo User Credentials: demo@example.com / password123`);
 });

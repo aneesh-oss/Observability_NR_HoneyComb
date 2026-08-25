@@ -34,12 +34,12 @@ This document tracks all development milestones, architectural decisions, issues
 
 ---
 
-### Phase 4: Winston Logging & Automatic Trace Correlation
-- **Goal**: Capture application logs and link them to distributed traces in Honeycomb and New Relic.
+### Phase 4: Winston Logging & OpenTelemetryTransportV3 Integration
+- **Goal**: Integrate Winston logger with `@opentelemetry/winston-transport` for explicit log record emission and trace correlation.
 - **Key Implementation**:
-  - Integrated `winston` and `@opentelemetry/instrumentation-winston`.
-  - `WinstonInstrumentation` automatically intercepts all `logger.info()`, `logger.warn()`, and `logger.error()` calls and injects the active `trace_id` and `span_id`.
-  - Configured `SimpleLogRecordProcessor` in `tracing.js` for instant log record flushing.
+  - Integrated `winston` and `@opentelemetry/winston-transport`.
+  - Configured `OpenTelemetryTransportV3` on the Winston logger in `server.js`.
+  - Correlated logs automatically with active HTTP trace spans (`trace_id` and `span_id`).
 
 ---
 
@@ -47,12 +47,7 @@ This document tracks all development milestones, architectural decisions, issues
 
 ### 1. Honeycomb 401 Unauthenticated & New Relic 403 PermissionDenied
 - ❌ **Symptom**: OTel Collector logs showed `401 Unauthenticated (unknown API key)` for Honeycomb and `403 PermissionDenied` for New Relic.
-- 🔍 **Root Cause**: The `.env` file contained a **leading space** after the `=` sign:
-  ```env
-  # Incorrect
-  HONEYCOMB_API_KEY= hcaik_01m0sgbzra7...
-  ```
-  Docker Compose read the leading space into the header (`x-honeycomb-team: " hcaik..."`), causing authentication failures.
+- 🔍 **Root Cause**: The `.env` file contained a **leading space** after the `=` sign: `HONEYCOMB_API_KEY= hcaik_...`.
 - ✅ **Fix**: Removed leading space in `.env`: `HONEYCOMB_API_KEY=hcaik_...`.
 - 💡 **Lesson Learned**: Environment variable parsers do not automatically trim leading spaces after `=`. Always ensure key values have no extra whitespace.
 
@@ -74,19 +69,11 @@ This document tracks all development milestones, architectural decisions, issues
 
 ---
 
-### 4. OpenTelemetry Logs Not Ingesting Native Console Logs
-- ❌ **Symptom**: Traces appeared in Honeycomb, but application logs were not showing up.
-- 🔍 **Root Cause**: OpenTelemetry JS does not automatically capture standard `console.log()` calls. Additionally, `logRecordProcessors` needed to be registered inside the `NodeSDK` constructor.
-- ✅ **Fix**: Installed `winston` and `@opentelemetry/instrumentation-winston`, and added `new WinstonInstrumentation()` to `tracing.js`.
-- 💡 **Lesson Learned**: The standard Node.js pattern for OpenTelemetry logs is to use Winston/Pino with OTel instrumentation. It automatically attaches `trace_id` and `span_id` to every log record.
-
----
-
-### 5. Honeycomb Signal Storage Architecture
-- ❌ **Symptom**: User looking for a separate "Logs" tab in Honeycomb UI.
-- 🔍 **Root Cause**: Unlike tools that separate logs and traces into different tabs, Honeycomb unifies all OTel signals (Traces & Logs) into the same dataset (`todo-app-traces`).
-- ✅ **Fix**: Queried dataset `todo-app-traces` in Honeycomb using `WHERE body EXISTS` to view correlated logs alongside trace spans.
-- 💡 **Lesson Learned**: In Honeycomb, logs are structured events stored inside your dataset alongside traces, linked via `trace_id`.
+### 4. Why Logs Aren't in a Separate "Logs" Tab in Honeycomb (Honeycomb Architecture)
+- ❌ **Symptom**: User saw traces under `todo-backend-service` dataset in Honeycomb, but no separate "Logs" tab.
+- 🔍 **Root Cause**: Honeycomb documentation specifies that Honeycomb is an **Event-Based Observability Engine**. It does not split data into separate "Logs" vs "Traces" products. All OTel signals with a `service.name` (`todo-backend-service`) are ingested as events into the dataset named after your service (`todo-backend-service`).
+- ✅ **Fix**: In Honeycomb, query the `todo-backend-service` dataset directly. Trace spans and log attributes (`user.email`, `todo.title`, `http.status_code`) appear together as unified structured events.
+- 💡 **Lesson Learned**: Honeycomb routes OTel data automatically based on `service.name`. All log attributes attached to spans are queryable in the Honeycomb Query Builder for `todo-backend-service`.
 
 ---
 
