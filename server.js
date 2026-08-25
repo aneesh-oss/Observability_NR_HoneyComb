@@ -5,14 +5,45 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const winston = require('winston');
-const { OpenTelemetryTransportV3 } = require('@opentelemetry/winston-transport');
+const Transport = require('winston-transport');
 const { trace, metrics, SpanStatusCode } = require('@opentelemetry/api');
+const { logs } = require('@opentelemetry/api-logs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'otel-secret-key-super-secure';
 
-// Initialize Winston Logger with OpenTelemetryTransportV3
+// Custom Winston Transport to directly emit OTel LogRecords with body and level
+class OTelWinstonTransport extends Transport {
+  log(info, callback) {
+    setImmediate(() => this.emit('logged', info));
+    try {
+      const activeSpan = trace.getActiveSpan();
+      const spanContext = activeSpan ? activeSpan.spanContext() : null;
+      const otelLogger = logs.getLogger('winston-otel-logger', '1.0.0');
+
+      const { level, message, timestamp, ...meta } = info;
+
+      otelLogger.emit({
+        timestamp: Date.now(),
+        severityText: String(level).toUpperCase(),
+        body: String(message),
+        attributes: {
+          ...meta,
+          message: String(message),
+          level: String(level).toLowerCase(),
+          'service.name': process.env.OTEL_SERVICE_NAME || 'todo-backend-service',
+          ...(spanContext ? { trace_id: spanContext.traceId, span_id: spanContext.spanId } : {})
+        }
+      });
+    } catch (e) {
+      console.error('OTel Winston Transport Error:', e);
+    }
+    callback();
+  }
+}
+
+// Initialize Winston Logger with OTelWinstonTransport
 const logger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(
@@ -21,7 +52,7 @@ const logger = winston.createLogger({
   ),
   transports: [
     new winston.transports.Console(),
-    new OpenTelemetryTransportV3() // Explicit OTel transport guaranteeing log record emission
+    new OTelWinstonTransport()
   ]
 });
 
@@ -224,7 +255,7 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 });
 
 // =========================================================
-// TODO CRUD ENDPOINTS (Winston Logging + Correlated Spans)
+// TODO CRUD ENDPOINTS (Winston OTel Logging + Correlated Spans)
 // =========================================================
 
 app.get('/api/todos', authenticateToken, async (req, res) => {
@@ -281,7 +312,7 @@ app.post('/api/todos', authenticateToken, async (req, res) => {
       category: newTodo.category
     });
 
-    // Winston Log (Sent via OpenTelemetryTransportV3 directly to OTel Collector)
+    // Winston Log with explicit message and level attributes
     logger.info(`Todo created: "${newTodo.title}"`, {
       todoId: newTodo.id,
       todoPriority: newTodo.priority,
@@ -381,7 +412,7 @@ app.get('/api/telemetry-status', (req, res) => {
   res.json({
     service: process.env.OTEL_SERVICE_NAME || 'todo-backend-service',
     collectorEndpoint: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://otel-collector:4318/v1/traces',
-    signals: ['Traces', 'Metrics', 'Winston OTel Transport Logs'],
+    signals: ['Traces', 'Metrics', 'OTel Winston Transport Logs'],
     destinations: {
       honeycomb: process.env.HONEYCOMB_API_KEY ? 'Configured' : 'Missing API Key (Check .env)',
       newrelic: process.env.NEW_RELIC_LICENSE_KEY ? 'Configured' : 'Missing License Key (Check .env)',
@@ -391,6 +422,6 @@ app.get('/api/telemetry-status', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  logger.info(`🚀 Todo Service with OpenTelemetryTransportV3 listening on port ${PORT}`);
+  logger.info(`🚀 Todo Service with OTelWinstonTransport listening on port ${PORT}`);
   console.log(`🔑 Demo User Credentials: demo@example.com / password123`);
 });

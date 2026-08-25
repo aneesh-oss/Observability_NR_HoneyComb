@@ -69,11 +69,15 @@ This document tracks all development milestones, architectural decisions, issues
 
 ---
 
-### 4. Why Logs Aren't in a Separate "Logs" Tab in Honeycomb (Honeycomb Architecture)
-- ❌ **Symptom**: User saw traces under `todo-backend-service` dataset in Honeycomb, but no separate "Logs" tab.
-- 🔍 **Root Cause**: Honeycomb documentation specifies that Honeycomb is an **Event-Based Observability Engine**. It does not split data into separate "Logs" vs "Traces" products. All OTel signals with a `service.name` (`todo-backend-service`) are ingested as events into the dataset named after your service (`todo-backend-service`).
-- ✅ **Fix**: In Honeycomb, query the `todo-backend-service` dataset directly. Trace spans and log attributes (`user.email`, `todo.title`, `http.status_code`) appear together as unified structured events.
-- 💡 **Lesson Learned**: Honeycomb routes OTel data automatically based on `service.name`. All log attributes attached to spans are queryable in the Honeycomb Query Builder for `todo-backend-service`.
+### 4. Honeycomb "Logs Tab" Field Mapping (Dataset Definitions)
+- ❌ **Symptom**: Honeycomb UI **Logs Tab** displays *"There is nothing here...yet. Expecting to see logs? Define your log fields in Dataset Definitions"*.
+- 🔍 **Root Cause**: Honeycomb requires mapping **`Logs: Message`** and **`Logs: Severity`** under Dataset Definitions in Honeycomb Settings for the **Logs Tab** visualization to activate.
+- ✅ **Fix**: In Honeycomb UI:
+  1. Click **Dataset Settings** ➔ **Definitions** (or click *"Define your log fields in Dataset Definitions"*).
+  2. Map **Logs: Message** ➔ `body` (or `message`).
+  3. Map **Logs: Severity** ➔ `severityText` (or `level`).
+  4. Click **Save**.
+- 💡 **Lesson Learned**: The raw log events arrive in Honeycomb, but Honeycomb's dedicated "Logs View" requires field definitions to render formatted log streams.
 
 ---
 
