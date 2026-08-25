@@ -34,12 +34,12 @@ This document tracks all development milestones, architectural decisions, issues
 
 ---
 
-### Phase 4: Winston Logging & OpenTelemetryTransportV3 Integration
-- **Goal**: Integrate Winston logger with `@opentelemetry/winston-transport` for explicit log record emission and trace correlation.
+### Phase 4: Winston Logging & OTLP LogExporter Resolution
+- **Goal**: Resolve OTLP LogExporter 404 endpoint duplication bug and flush Winston log records to Honeycomb & New Relic.
 - **Key Implementation**:
-  - Integrated `winston` and `@opentelemetry/winston-transport`.
-  - Configured `OpenTelemetryTransportV3` on the Winston logger in `server.js`.
-  - Correlated logs automatically with active HTTP trace spans (`trace_id` and `span_id`).
+  - Identified OTLPLogExporter endpoint URL duplication (`/v1/logs/v1/logs` 404 bug) and corrected base endpoint to `http://otel-collector:4318`.
+  - Configured `BatchLogRecordProcessor` in `tracing.js` with 1-second scheduled flush delay.
+  - Implemented `OTelWinstonTransport` in `server.js` attaching explicit `body`, `message`, `level`, and `severityText` attributes to every log record.
 
 ---
 
@@ -69,15 +69,23 @@ This document tracks all development milestones, architectural decisions, issues
 
 ---
 
-### 4. Honeycomb "Logs Tab" Field Mapping (Dataset Definitions)
+### 4. OTLPLogExporter `/v1/logs` 404 Endpoint Duplication
+- ❌ **Symptom**: Node.js logs returned `404 Not Found` when trying to post to `http://otel-collector:4318/v1/logs`.
+- 🔍 **Root Cause**: `@opentelemetry/exporter-logs-otlp-http` automatically appends `/v1/logs` to the base endpoint. Passing `http://otel-collector:4318/v1/logs` caused it to post to `http://otel-collector:4318/v1/logs/v1/logs`.
+- ✅ **Fix**: Set base endpoint `logUrl = 'http://otel-collector:4318'` in `tracing.js`.
+- 💡 **Lesson Learned**: Always pass the base collector endpoint (`http://collector:4318`) to JS OTLP Exporters so signals append their respective `/v1/*` paths correctly.
+
+---
+
+### 5. Honeycomb "Logs Tab" Field Mapping (Dataset Definitions)
 - ❌ **Symptom**: Honeycomb UI **Logs Tab** displays *"There is nothing here...yet. Expecting to see logs? Define your log fields in Dataset Definitions"*.
-- 🔍 **Root Cause**: Honeycomb requires mapping **`Logs: Message`** and **`Logs: Severity`** under Dataset Definitions in Honeycomb Settings for the **Logs Tab** visualization to activate.
+- 🔍 **Root Cause**: Honeycomb requires mapping **`Logs: Message`** (`message` / `body`) and **`Logs: Severity`** (`level` / `severityText`) under Dataset Definitions in Honeycomb Settings for the **Logs Tab** visualization to activate.
 - ✅ **Fix**: In Honeycomb UI:
   1. Click **Dataset Settings** ➔ **Definitions** (or click *"Define your log fields in Dataset Definitions"*).
-  2. Map **Logs: Message** ➔ `body` (or `message`).
-  3. Map **Logs: Severity** ➔ `severityText` (or `level`).
+  2. Map **Logs: Message** ➔ `message` (or `body`).
+  3. Map **Logs: Severity** ➔ `level` (or `severityText`).
   4. Click **Save**.
-- 💡 **Lesson Learned**: The raw log events arrive in Honeycomb, but Honeycomb's dedicated "Logs View" requires field definitions to render formatted log streams.
+- 💡 **Lesson Learned**: Honeycomb's dedicated "Logs View" requires field definitions to render formatted log streams.
 
 ---
 

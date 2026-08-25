@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { loggerProvider } = require('./tracing'); // Explicitly import loggerProvider from tracing initialization
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -7,31 +8,35 @@ const jwt = require('jsonwebtoken');
 const winston = require('winston');
 const Transport = require('winston-transport');
 const { trace, metrics, SpanStatusCode } = require('@opentelemetry/api');
-const { logs } = require('@opentelemetry/api-logs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'otel-secret-key-super-secure';
 
-// Custom Winston Transport to directly emit OTel LogRecords with body and level
+// Custom Winston Transport to directly emit OTel LogRecords using initialized loggerProvider
 class OTelWinstonTransport extends Transport {
   log(info, callback) {
     setImmediate(() => this.emit('logged', info));
     try {
       const activeSpan = trace.getActiveSpan();
       const spanContext = activeSpan ? activeSpan.spanContext() : null;
-      const otelLogger = logs.getLogger('winston-otel-logger', '1.0.0');
+      
+      // Get logger directly from initialized LoggerProvider
+      const otelLogger = loggerProvider.getLogger('winston-otel-logger', '1.0.0');
 
       const { level, message, timestamp, ...meta } = info;
+      const severityText = String(level).toUpperCase();
+      const logBody = String(message);
 
       otelLogger.emit({
         timestamp: Date.now(),
-        severityText: String(level).toUpperCase(),
-        body: String(message),
+        severityText: severityText,
+        body: logBody,
         attributes: {
           ...meta,
-          message: String(message),
-          level: String(level).toLowerCase(),
+          'message': logBody,
+          'level': String(level).toLowerCase(),
+          'severity_text': severityText,
           'service.name': process.env.OTEL_SERVICE_NAME || 'todo-backend-service',
           ...(spanContext ? { trace_id: spanContext.traceId, span_id: spanContext.spanId } : {})
         }
