@@ -10,6 +10,19 @@ processors:
   batch:
     timeout: 1s
     send_batch_size: 1024
+  resource:
+    attributes:
+      - key: service.name
+        value: "todo-backend-service"
+        action: upsert
+  transform:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          # Automatically parse JSON string bodies and flatten nested JSON objects into flat attributes
+          - set(attributes["_json"], ParseJSON(body)) where IsString(body)
+          - flatten(attributes, ".")
 
 exporters:
   # 1. Honeycomb Exporter (OTLP HTTP for Traces, Metrics & Logs)
@@ -17,6 +30,7 @@ exporters:
     endpoint: "https://api.honeycomb.io"
     headers:
       "x-honeycomb-team": "${HONEYCOMB_API_KEY}"
+      "x-honeycomb-dataset": "${HONEYCOMB_DATASET}"
 
   # 2. New Relic Exporter (OTLP HTTP for Traces, Metrics & Logs)
   otlp_http/newrelic:
@@ -32,13 +46,13 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
+      processors: [resource, batch]
       exporters: [debug, otlp_http/honeycomb, otlp_http/newrelic]
     metrics:
       receivers: [otlp]
-      processors: [batch]
+      processors: [resource, batch]
       exporters: [debug, otlp_http/honeycomb, otlp_http/newrelic]
     logs:
       receivers: [otlp]
-      processors: [batch]
+      processors: [resource, transform, batch]
       exporters: [debug, otlp_http/honeycomb, otlp_http/newrelic]

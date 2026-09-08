@@ -14,13 +14,12 @@ const otlpBaseEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || `http://${co
 
 const traceUrl = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || `${otlpBaseEndpoint}/v1/traces`;
 const metricUrl = process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT || `${otlpBaseEndpoint}/v1/metrics`;
-// OTLPLogExporter automatically appends /v1/logs to base endpoint
-const logUrl = process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT || otlpBaseEndpoint;
+const logUrl = process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT || `${otlpBaseEndpoint}/v1/logs`;
 
 console.log(`[OpenTelemetry] Initializing OTel SDK (Traces, Metrics, Winston Logs):`);
 console.log(`  -> Traces Target:  ${traceUrl}`);
 console.log(`  -> Metrics Target: ${metricUrl}`);
-console.log(`  -> Logs Base:      ${logUrl}`);
+console.log(`  -> Logs Target:    ${logUrl}`);
 
 const resource = new Resource({
   [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'todo-backend-service',

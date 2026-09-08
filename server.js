@@ -65,6 +65,17 @@ const logger = winston.createLogger({
 app.use(cors());
 app.use(express.json());
 
+// Attach message and level attributes to all HTTP trace spans for unified querying
+app.use((req, res, next) => {
+  const activeSpan = trace.getActiveSpan();
+  if (activeSpan) {
+    activeSpan.setAttribute('level', 'info');
+    activeSpan.setAttribute('message', `${req.method} ${req.path}`);
+    activeSpan.setAttribute('severity_text', 'INFO');
+  }
+  next();
+});
+
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, 'public')));
 

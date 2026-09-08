@@ -89,6 +89,15 @@ This document tracks all development milestones, architectural decisions, issues
 
 ---
 
+### 6. [2026-09-08] Full Verification & Resolution of Honeycomb Log Ingestion
+- **Description**: Verified and resolved missing Honeycomb logs by fixing the OTLPLogExporter base endpoint URL, removing hidden whitespace in `.env`, building custom `OTelWinstonTransport`, and configuring Dataset Definitions in Honeycomb.
+- **Root Cause / Motivation**: Log records were failing due to 404 URL duplication (`/v1/logs/v1/logs`), 401 unauthenticated headers, and Honeycomb requiring explicit field mappings (`message` ➔ `Logs: Message`, `level` ➔ `Logs: Severity`) to activate the UI Logs stream.
+- **Files Modified**: `tracing.js`, `server.js`, `.env`, `docker-compose.yml`, `PROJECT_JOURNAL.md`
+- **Verification**: Executed live authentication and todo CRUD requests via `curl`, confirmed HTTP 200 responses in `docker compose logs otel-collector`, verified `todo.created.count` metrics, and confirmed log record delivery to Honeycomb.
+- **Lesson Learned**: Always pass base collector URLs (`http://collector:4318`) to JS OTLP exporters, trim environment variables, and configure Dataset Definitions in Honeycomb for log visualization.
+
+---
+
 ## 📝 How to Document Future Changes (Template)
 
 Copy and paste this template section whenever adding a new feature or resolving a bug in the future:
